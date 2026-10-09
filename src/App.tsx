@@ -46,7 +46,7 @@ export default function App() {
   const [activeCandidate, setActiveCandidate] = useState(0);
   const [delivery, setDelivery] = useState("");
   const [lookupId, setLookupId] = useState("");
-  const [contractReady, setContractReady] = useState(false);
+  const [contractStatus, setContractStatus] = useState<"checking" | "live" | "error">("checking");
 
   const requirementLines = useMemo(() => requirements.split(/\r?\n/).map(line => line.trim()).filter(Boolean), [requirements]);
   const preview = !configured;
@@ -74,12 +74,15 @@ export default function App() {
     setBusy(true);
     try {
       await assertCompatibleContract();
-      setContractReady(true);
+      setContractStatus("live");
       const record = await read<TaskResult>("get_task", [storageId]);
       if (record.storage_id?.toLowerCase() !== storageId) throw Error("The returned task ID did not match the request.");
       useTaskRecord(record, storageId);
       setNotice("On-chain task loaded. Connect the creator or selected agent wallet for the next signed action.");
-    } catch (e) { setError(`Could not load this task from the configured contract: ${(e as Error).message}`); }
+    } catch (e) {
+      setContractStatus(current => current === "live" ? current : "error");
+      setError(`Could not load this task from the configured contract: ${(e as Error).message}`);
+    }
     finally { setBusy(false); }
   };
 
@@ -87,7 +90,10 @@ export default function App() {
     if (!configured) return;
     const saved = rememberedTaskKey(window.location.search, window.localStorage.getItem(taskStorageKey(CONTRACT)));
     if (saved) void loadTask(saved);
-    else void assertCompatibleContract().then(() => setContractReady(true)).catch(e => setError((e as Error).message));
+    else void assertCompatibleContract().then(() => setContractStatus("live")).catch(e => {
+      setContractStatus("error");
+      setError((e as Error).message);
+    });
   }, []);
 
   useEffect(() => watchWallets(setWallets), []);
@@ -214,7 +220,7 @@ export default function App() {
     </header>
     <main id="top">
       <section className="hero"><div className="hero-grid"><div><div className="eyebrow"><Sparkles size={14}/> VERIFIED AGENT ROUTING</div><h1>Send each task<br/><em>to the right agent.</em></h1><p>TaskRoute compares real trial outputs against a fixed task specification. GenLayer validators agree on the route, record the reason, and keep the decision auditable.</p><a className="hero-link" href="#route">Try the workspace <ArrowRight size={16}/></a></div><div className="hero-visual"><div className="orbit orbit-one"/><div className="orbit orbit-two"/><div className="agent-pill pill-one"><span className="pill-dot gold"/><strong>FactTable</strong><small>90s · qualifies</small></div><div className="agent-pill pill-two"><span className="pill-dot blue"/><strong>FastSummary</strong><small>50s · missing 1</small></div><div className="route-core"><GitBranch size={25}/><span>CONSENSUS<br/>ROUTE</span></div></div></div></section>
-      <section className="workspace" id="route"><div className="section-heading"><div><span className="kicker">THE ROUTING DESK</span><h2>Give the task a fair test.</h2><p>Freeze the requirements, compare trial outputs, then ask GenLayer to choose.</p></div><div className={`mode-chip ${preview ? "preview" : contractReady ? "live" : "outdated"}`}><span/> {preview ? "Preview mode" : contractReady ? "Live contract" : "Contract upgrade needed"}</div></div>
+      <section className="workspace" id="route"><div className="section-heading"><div><span className="kicker">THE ROUTING DESK</span><h2>Give the task a fair test.</h2><p>Freeze the requirements, compare trial outputs, then ask GenLayer to choose.</p></div><div className={`mode-chip ${preview ? "preview" : contractStatus === "error" ? "outdated" : contractStatus}`} aria-live="polite"><span/> {preview ? "Preview mode" : contractStatus === "checking" ? "Checking contract…" : contractStatus === "live" ? "Live contract" : "Contract check failed"}</div></div>
         {!preview && <div className="task-loader"><label htmlFor="task-key">Open an existing on-chain task</label><div><input id="task-key" value={lookupId} onChange={event => setLookupId(event.target.value)} placeholder="0xCreatorAddress:task-id"/><button onClick={() => void loadTask(lookupId)} disabled={busy}>Load task</button></div><small>Bookmark or share the task URL to resume after a refresh or from the selected agent wallet.</small></div>}
         {(error || notice) && <div className={`notice ${error ? "error" : ""}`}>{error || notice}{txHash && <a href={`${EXPLORER}/transactions/${txHash}`} target="_blank" rel="noreferrer">View transaction</a>}</div>}
         <div className="desk-grid"><section className="card task-card"><div className="card-head"><div><span className="kicker">01 · TASK SPECIFICATION</span><h3>What must be done?</h3></div><CircleHelp size={18}/></div><label>Task brief<textarea value={task} onChange={event => setTask(event.target.value)} rows={5}/></label><label>Requirements <span className="label-note">one per line</span><textarea value={requirements} onChange={event => setRequirements(event.target.value)} rows={5}/></label><div className="spec-footer"><span><LockKeyhole size={14}/> Requirements are fixed before judging</span><span>{requirementLines.length}/6</span></div></section>
