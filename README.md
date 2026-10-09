@@ -30,12 +30,16 @@ The app targets GenLayer Studio Next (chain 61997) and supports injected EVM wal
 - Explorer: https://explorer-studio-dev.genlayer.com/address/0x323aa0C703443d9598D7BD2E8Fe14F5c04E4881B
 - Read-only `get_policy` returned `rules_version: 2` and `decision_schema: taskroute/v2-banded-consensus` with `Accepted` status.
 - `.env.local` and the Vercel production and preview environments point to this deployment.
-- Production site: https://taskroute-three.vercel.app/ (Vercel project `sanity3/taskroute`; deployment `dpl_621b21UCuVv4Nuyz8Lrvz9g31kSP`). The deployment is `READY`; an HTTP check returned 200 and the served JavaScript bundle contains the v2 contract address.
+- Production site: https://taskroute-three.vercel.app/ (Vercel project `sanity3/taskroute`; deployment `dpl_DSAgtjp6cMytS8XrdB6TUr9LzxTb`). The deployment is `READY` and uses the v2 contract address.
 - The v2 live lifecycle smoke test completed successfully. Test task: `smoke-20261009-v2-a`; storage ID: `0xd2ef9b9d07a69152d075462274f3329be7538d8e:smoke-20261009-v2-a`.
 - Live result: `route_a` selected (score 100; no missing requirements), claimed by the selected wallet, delivery submitted, then accepted by `verify_delivery`. A fresh read-only `get_task` returned `ACCEPTED` with `missing_indices: []` and the validator's acceptance reason.
 - Confirmed transaction hashes: route `0x907fbcf1697c6f99ffa8df28d8f22dbbd8a8ec2cf444521a8d41cd66a8fc5b32`, claim `0xd95cb8b15140f259bba35edcc980c36d27bca3278ed55070c990b3df1e1cf7a1`, delivery `0xa6720ded1d98f4d2cd25d89b4a73da015077484f6621b41efda14c51346eb1c7`.
 - Studio's transaction card continued to display the verification call as pending, but the subsequent contract readback confirmed the final accepted state. The verification transaction hash was not captured, so it is intentionally omitted here.
 - Production deployment verified at https://taskroute-three.vercel.app/; its served bundle references the v2 contract address.
+
+### Production browser wallet smoke test
+
+The production Vercel app connected MetaMask on Studio Next (chain 61997), simulated `route_task`, displayed a protocol deposit of `0.000382702800010352` test GEN, and submitted the transaction after wallet approval. Transaction [`0x3e1a1a964fa2bce218a4e50ecbebcbdb076ceff79d7c0eda23929fe0e89101d2`](https://explorer-studio-dev.genlayer.com/transactions/0x3e1a1a964fa2bce218a4e50ecbebcbdb076ceff79d7c0eda23929fe0e89101d2) finalized. The [new task](https://taskroute-three.vercel.app/?task=0xd2ef9b9d07a69152d075462274f3329be7538d8e%3Atask-mv1iz3in) loads after a refresh without a connected wallet and shows `route_a` selected at score 100 with no missing requirements. This proves the production browser signing path for routing; the separate smoke test above covers the full route, claim, delivery, and review lifecycle.
 
 ## Reviewer path
 
