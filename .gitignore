@@ -1,0 +1,12 @@
+node_modules/
+node_modules-incomplete/
+dist/
+.env*
+!.env.example
+.artifacts/
+artifacts/
+.pytest_cache/
+__pycache__/
+*.pyc
+.sites-runtime/
+.vercel/
