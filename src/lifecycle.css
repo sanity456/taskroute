@@ -3,3 +3,4 @@
 .task-history{margin-top:16px;border:1px solid #e6e6dd;border-radius:11px;background:#fff;padding:14px;font-size:11px;color:#526b66}.task-history summary{cursor:pointer;font-weight:800;color:#2a694c}.task-history>div{border-top:1px solid #edf0eb;margin-top:12px;padding-top:12px}.task-history p{white-space:pre-wrap;line-height:1.5}.task-history small{color:#7b8c88}
 .mode-chip.outdated{background:#fff0ed;color:#a34d42}.mode-chip.outdated span{background:#d86e5f}
 .mode-chip.checking{background:#f2f4f1;color:#637b77}.mode-chip.checking span{background:#9dafaa}
+.brand-logo{width:34px;height:34px;display:block;flex:none;transform:rotate(-8deg)}

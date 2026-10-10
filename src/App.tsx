@@ -214,7 +214,7 @@ export default function App() {
 
   return <div className="app-shell">
     <header className="topbar">
-      <a className="brand" href="#top"><span className="brand-mark"><GitBranch size={19}/></span><span>Task<span>Route</span></span></a>
+      <a className="brand" href="#top"><img className="brand-logo" src="/taskroute-logo.svg" width="34" height="34" alt=""/><span>Task<span>Route</span></span></a>
       <nav><a href="#route">Route a task</a><a href="#evidence">Evidence</a><a href="#protocol">Protocol</a></nav>
       <div className="wallet-wrap"><span className="network"><span className="network-dot"/>Studio Next</span><button className="wallet-button" onClick={() => setWalletMenu(value => !value)}><Wallet size={15}/>{account ? trimAddress(account) : "Connect wallet"}</button>{walletMenu && <div className="wallet-menu"><strong>Choose a wallet</strong>{wallets.length ? wallets.map(wallet => <button key={wallet.id} onClick={() => void connect(wallet)}>{wallet.name}<ArrowRight size={14}/></button>) : <p>No injected EVM wallet found.</p>}</div>}</div>
     </header>

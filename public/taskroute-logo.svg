@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-labelledby="title description">
+  <title id="title">TaskRoute logo</title>
+  <desc id="description">A dark teal TR monogram on a rounded gold square.</desc>
+  <defs>
+    <linearGradient id="gold" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#F7D978"/>
+      <stop offset="1" stop-color="#E5AA3B"/>
+    </linearGradient>
+  </defs>
+  <rect x="12" y="12" width="488" height="488" rx="110" fill="#12383A"/>
+  <rect x="25" y="25" width="462" height="462" rx="98" fill="url(#gold)"/>
+  <g fill="none" stroke="#12383A" stroke-width="51" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M99 156h137M167.5 156v219"/>
+    <path d="M285 375V156h66c51 0 78 22 78 65s-27 65-78 65h-66M348 287l79 88"/>
+  </g>
+  <circle cx="427" cy="375" r="13" fill="#FFF9E9"/>
+</svg>
