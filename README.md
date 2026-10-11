@@ -115,4 +115,4 @@ This earlier deployment completed a real Studio Next smoke workflow, but it does
 - `verify_delivery(storage_id)` — validators independently accept or reject the delivery.
 - `get_task`, `get_policy`, `get_task_count`, `get_task_id` — read-only views.
 
-The contract uses a pinned GenVM runner and custom validator functions. The route score and reason are generated from validator-agreed missing-requirement fields. Delivery review reasons remain free-form; validators compare the acceptance status and missing-requirement indices. The v4 source and UI are not evidence of a live deployment until the Studio Next deployment, smoke test, frontend cutover and submission links are updated.
+The contract uses a pinned GenVM runner and custom validator functions. The route score and reason are generated from validator-agreed missing-requirement fields. Delivery review reasons remain free-form; validators compare the acceptance status and missing-requirement indices. The current v4 deployment, production cutover, and completed live lifecycle are documented above; historical deployments are retained below for traceability only.
