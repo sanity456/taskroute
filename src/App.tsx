@@ -7,7 +7,8 @@ import "./lifecycle.css";
 
 type Candidate = { id: string; name: string; address: string; output: string; accent: string };
 type Score = { id: string; score: number; missing_indices: number[] };
-type TaskResult = { task_id: string; storage_id?: string; creator?: string; task?: string; status: string; selected_address: string; claimed_by?: string; decision: { status: string; selected_id: string; scores: Score[]; reason: string }; candidates: Candidate[]; requirements: string[]; evaluation: unknown; delivery: string; delivery_history?: { delivery: string; evaluation: unknown }[] };
+type Trial = { output: string; output_hash: string; submitted_by: string; submitted_at: number; revision: number };
+type TaskResult = { task_id: string; storage_id?: string; creator?: string; task?: string; status: string; selected_address: string; claimed_by?: string; decision: { status: string; selected_id: string; scores: Score[]; reason: string }; candidates: Candidate[]; authorized?: Record<string, Omit<Candidate, "output" | "accent">>; trials?: Record<string, Trial>; requirements: string[]; evaluation: unknown; delivery: string; deadline?: number; expired_from?: string; delivery_history?: { delivery: string; evaluation: unknown }[] };
 
 const SAMPLE_TASK = "Create a fact-safe comparison table for three laptop models. Include price, battery life and warranty. Mark unavailable values as unknown; never invent specifications.";
 const SAMPLE_REQUIREMENTS = ["Include price, battery life and warranty for each model.", "Use only facts present in the source material.", "Clearly mark missing values as unknown."];
@@ -44,6 +45,7 @@ export default function App() {
   const [busy, setBusy] = useState(false);
   const [txHash, setTxHash] = useState("");
   const [activeCandidate, setActiveCandidate] = useState(0);
+  const [newCandidate, setNewCandidate] = useState({ id: "", name: "", address: "" });
   const [delivery, setDelivery] = useState("");
   const [lookupId, setLookupId] = useState("");
   const [contractStatus, setContractStatus] = useState<"checking" | "live" | "error">("checking");
@@ -56,7 +58,10 @@ export default function App() {
     setResult(record);
     setTask(record.task || "");
     setRequirements(record.requirements.join("\n"));
-    setCandidates(record.candidates.map((candidate, index) => ({ ...candidate, accent: ACCENTS[index % ACCENTS.length] })));
+    const registered = record.authorized ? Object.values(record.authorized) : record.candidates;
+    setCandidates(registered.map((candidate, index) => ({ ...candidate,
+      output: record.trials?.[candidate.id]?.output ?? candidates.find(item => item.id === candidate.id)?.output ?? "",
+      accent: ACCENTS[index % ACCENTS.length] })));
     setActiveCandidate(0);
     setDelivery(record.status === "REJECTED" ? record.delivery : "");
     setLookupId(storageId);
@@ -157,25 +162,60 @@ export default function App() {
   const route = async () => {
     setError(""); setNotice(""); setTxHash("");
     if (task.trim().length < 20 || requirementLines.length < 1 || requirementLines.length > 6) { setError("Add a task of at least 20 characters and 1–6 requirements."); return; }
-    if (candidates.length < 2 || candidates.some(candidate => !validAddress(candidate.address))) { setError("Each candidate needs a valid EVM address before routing."); return; }
+    if (candidates.length < 2 || candidates.some(candidate => !validAddress(candidate.address))) { setError("Each candidate needs a valid EVM address before creating a task."); return; }
     if (preview) { setResult(demoResult()); setDelivery(""); setNotice("Preview decision updated from the current requirements and trial outputs. Deploy a contract to enable live consensus."); return; }
     if (candidates.some(candidate => SAMPLE_ADDRESSES.has(candidate.address.toLowerCase()))) { setError("Replace every sample agent address with a wallet its agent controls before a live route. The selected wallet must sign the claim and delivery."); return; }
-    if (!provider || !account) { setError("Connect a wallet before requesting a live route."); return; }
-    if (result?.status === "NO_MATCH" && result.task === task && JSON.stringify(result.requirements) === JSON.stringify(requirementLines) && result.creator?.toLowerCase() !== account.toLowerCase()) { setError("Reconnect the task creator wallet to reroute this NO_MATCH task."); return; }
+    if (!provider || !account) { setError("Connect the creator wallet before creating or routing a task."); return; }
+    if (result && result.creator?.toLowerCase() !== account.toLowerCase()) { setError("Reconnect the task creator wallet to route or reroute."); return; }
+    if (result && (result.task !== task || JSON.stringify(result.requirements) !== JSON.stringify(requirementLines))) { setError("The on-chain task specification is fixed. Create a new task for different requirements."); return; }
+    if (result && !["DRAFT", "NO_MATCH", "EXPIRED"].includes(result.status)) { setError("This task cannot be routed in its current state."); return; }
     setBusy(true);
     try {
-      const payload = candidates.map(({ id, name, address, output }) => ({ id, name, address, output }));
-      const sameSpec = result?.task === task && JSON.stringify(result.requirements) === JSON.stringify(requirementLines);
-      const existingId = result?.status === "NO_MATCH" && sameSpec ? result.storage_id : "";
-      const method = existingId ? "reroute_task" : "route_task";
+      const creating = !result?.storage_id;
       const taskId = `task-${Date.now().toString(36)}`;
-      const args = existingId ? [existingId, JSON.stringify(payload)] : [taskId, task, JSON.stringify(requirementLines), JSON.stringify(payload)];
+      const storageId = creating ? `${account.toLowerCase()}:${taskId}` : result.storage_id!;
+      const method = creating ? "create_task" : result?.status === "DRAFT" ? "route_task" : "reroute_task";
+      const included = result?.status === "EXPIRED" ? candidates.filter(candidate => candidate.address.toLowerCase() !== result.selected_address.toLowerCase()) : candidates;
+      if (!creating && included.some(candidate => !result?.trials?.[candidate.id])) throw Error("Every included candidate must sign its trial before routing.");
+      const args = creating
+        ? [taskId, task, JSON.stringify(requirementLines), JSON.stringify(candidates.map(({ id, name, address }) => ({ id, name, address })))]
+        : [storageId, JSON.stringify(included.map(candidate => candidate.id))];
       const hash = await quoteAndSubmit(provider, account as `0x${string}`, method, args, message => setNotice(message));
-      setTxHash(hash); setNotice("Consensus transaction submitted. Waiting for the final route decision…");
-      await waitFinal(hash, status => setNotice(`Route transaction: ${status}`));
-      const storageId = existingId || `${account.toLowerCase()}:${taskId}`;
+      setTxHash(hash); setNotice(creating ? "Task creation submitted. Waiting for finality…" : "Consensus route submitted. Waiting for the final decision…");
+      await waitFinal(hash, status => setNotice(`${method.replaceAll("_", " ")}: ${status}`));
       useTaskRecord(await read<TaskResult>("get_task", [storageId]), storageId);
-      setNotice("Route finalized. The selected agent and validator evidence are now recorded on-chain.");
+      setNotice(creating ? "Task created. Each authorized agent must now connect and sign its own trial output." : "Route finalized with candidate-attested trial evidence.");
+    } catch (e) { setError((e as Error).message); }
+    finally { setBusy(false); }
+  };
+
+  const submitTrial = async () => {
+    const candidate = candidates[activeCandidate];
+    if (!result?.storage_id || !["DRAFT", "NO_MATCH", "EXPIRED"].includes(result.status)) { setError("Load a draft, no-match, or expired task first."); return; }
+    if (!candidate || candidate.output.trim().length < 20) { setError("The agent must provide at least 20 characters of trial output."); return; }
+    if (!account || account.toLowerCase() !== candidate.address.toLowerCase()) { setError("Connect this candidate's authorized wallet to attest its trial."); return; }
+    if (!provider) { setError("Connect a wallet first."); return; }
+    setBusy(true); setError(""); setNotice("");
+    try {
+      const hash = await quoteAndSubmit(provider, account as `0x${string}`, "submit_trial", [result.storage_id, candidate.id, candidate.output], setNotice);
+      setTxHash(hash); await waitFinal(hash, status => setNotice(`submit trial: ${status}`));
+      useTaskRecord(await read<TaskResult>("get_task", [result.storage_id]), result.storage_id);
+      setNotice("Agent-signed trial finalized. Its wallet address and content hash are now recorded on-chain.");
+    } catch (e) { setError((e as Error).message); }
+    finally { setBusy(false); }
+  };
+
+  const authorizeMore = async () => {
+    if (!result?.storage_id || !provider || !account) { setError("Load a task and connect its creator wallet."); return; }
+    if (account.toLowerCase() !== result.creator?.toLowerCase()) { setError("Only the creator can authorize another candidate."); return; }
+    if (!["DRAFT", "NO_MATCH", "EXPIRED"].includes(result.status)) { setError("Candidate registration is closed until this route expires."); return; }
+    setBusy(true); setError(""); setNotice("");
+    try {
+      const hash = await quoteAndSubmit(provider, account as `0x${string}`, "authorize_candidate", [result.storage_id, newCandidate.id, newCandidate.name, newCandidate.address], setNotice);
+      setTxHash(hash); await waitFinal(hash, status => setNotice(`authorize candidate: ${status}`));
+      useTaskRecord(await read<TaskResult>("get_task", [result.storage_id]), result.storage_id);
+      setNewCandidate({ id: "", name: "", address: "" });
+      setNotice("Candidate authorized. Ask that wallet to connect and sign its trial.");
     } catch (e) { setError((e as Error).message); }
     finally { setBusy(false); }
   };
@@ -196,6 +236,7 @@ export default function App() {
   };
 
   const claim = () => { if (result?.storage_id) void runAction("claim_task", [result.storage_id], "Task claimed by the selected agent.", "CLAIMED"); };
+  const expire = () => { if (result?.storage_id) void runAction("expire_task", [result.storage_id], "Stalled stage expired. The creator may reroute to a different attested agent.", "EXPIRED"); };
   const submit = () => {
     if (delivery.trim().length < 20) { setError("Add a delivery of at least 20 characters before submitting."); return; }
     if (result?.storage_id) void runAction("submit_delivery", [result.storage_id, delivery], "Delivery submitted for independent review.", "DELIVERED");
@@ -219,16 +260,45 @@ export default function App() {
       <div className="wallet-wrap"><span className="network"><span className="network-dot"/>Studio Next</span><button className="wallet-button" onClick={() => setWalletMenu(value => !value)}><Wallet size={15}/>{account ? trimAddress(account) : "Connect wallet"}</button>{walletMenu && <div className="wallet-menu"><strong>Choose a wallet</strong>{wallets.length ? wallets.map(wallet => <button key={wallet.id} onClick={() => void connect(wallet)}>{wallet.name}<ArrowRight size={14}/></button>) : <p>No injected EVM wallet found.</p>}</div>}</div>
     </header>
     <main id="top">
-      <section className="hero"><div className="hero-grid"><div><div className="eyebrow"><Sparkles size={14}/> VERIFIED AGENT ROUTING</div><h1>Send each task<br/><em>to the right agent.</em></h1><p>TaskRoute compares real trial outputs against a fixed task specification. GenLayer validators agree on the route, record the reason, and keep the decision auditable.</p><a className="hero-link" href="#route">Try the workspace <ArrowRight size={16}/></a></div><div className="hero-visual"><div className="orbit orbit-one"/><div className="orbit orbit-two"/><div className="agent-pill pill-one"><span className="pill-dot gold"/><strong>FactTable</strong><small>90s · qualifies</small></div><div className="agent-pill pill-two"><span className="pill-dot blue"/><strong>FastSummary</strong><small>50s · missing 1</small></div><div className="route-core"><GitBranch size={25}/><span>CONSENSUS<br/>ROUTE</span></div></div></div></section>
+      <section className="hero"><div className="hero-grid"><div><div className="eyebrow"><Sparkles size={14}/> VERIFIED AGENT ROUTING</div><h1>Send each task<br/><em>to the right agent.</em></h1><p>TaskRoute compares wallet-attested trial outputs against a fixed task specification. GenLayer validators agree on the route, record the reason, and keep the decision auditable.</p><a className="hero-link" href="#route">Try the workspace <ArrowRight size={16}/></a></div><div className="hero-visual"><div className="orbit orbit-one"/><div className="orbit orbit-two"/><div className="agent-pill pill-one"><span className="pill-dot gold"/><strong>FactTable</strong><small>90s · qualifies</small></div><div className="agent-pill pill-two"><span className="pill-dot blue"/><strong>FastSummary</strong><small>50s · missing 1</small></div><div className="route-core"><GitBranch size={25}/><span>CONSENSUS<br/>ROUTE</span></div></div></div></section>
       <section className="workspace" id="route"><div className="section-heading"><div><span className="kicker">THE ROUTING DESK</span><h2>Give the task a fair test.</h2><p>Freeze the requirements, compare trial outputs, then ask GenLayer to choose.</p></div><div className={`mode-chip ${preview ? "preview" : contractStatus === "error" ? "outdated" : contractStatus}`} aria-live="polite"><span/> {preview ? "Preview mode" : contractStatus === "checking" ? "Checking contract…" : contractStatus === "live" ? "Live contract" : "Contract check failed"}</div></div>
         {!preview && <div className="task-loader"><label htmlFor="task-key">Open an existing on-chain task</label><div><input id="task-key" value={lookupId} onChange={event => setLookupId(event.target.value)} placeholder="0xCreatorAddress:task-id"/><button onClick={() => void loadTask(lookupId)} disabled={busy}>Load task</button></div><small>Bookmark or share the task URL to resume after a refresh or from the selected agent wallet.</small></div>}
         {(error || notice) && <div className={`notice ${error ? "error" : ""}`}>{error || notice}{txHash && <a href={`${EXPLORER}/transactions/${txHash}`} target="_blank" rel="noreferrer">View transaction</a>}</div>}
-        <div className="desk-grid"><section className="card task-card"><div className="card-head"><div><span className="kicker">01 · TASK SPECIFICATION</span><h3>What must be done?</h3></div><CircleHelp size={18}/></div><label>Task brief<textarea value={task} onChange={event => setTask(event.target.value)} rows={5}/></label><label>Requirements <span className="label-note">one per line</span><textarea value={requirements} onChange={event => setRequirements(event.target.value)} rows={5}/></label><div className="spec-footer"><span><LockKeyhole size={14}/> Requirements are fixed before judging</span><span>{requirementLines.length}/6</span></div></section>
-          <section className="card candidates-card" id="evidence"><div className="card-head"><div><span className="kicker">02 · TRIAL EVIDENCE</span><h3>Compare the candidates.</h3></div><span className="candidate-count">{candidates.length} agents</span></div><p className="helper">Trial outputs are public evidence. Validators check coverage and hallucination risk against the requirements.</p><div className="candidate-tabs">{candidates.map((candidate, index) => <button key={candidate.id} className={activeCandidate === index ? "active" : ""} onClick={() => setActiveCandidate(index)}><span className={`pill-dot ${candidate.accent}`}/>{candidate.name}</button>)}</div><div className="candidate-detail"><div className="candidate-title"><div><strong>{candidates[activeCandidate].name}</strong><span>{candidates[activeCandidate].id}</span></div><span className="address">{trimAddress(candidates[activeCandidate].address)}</span></div><label>Agent wallet<input value={candidates[activeCandidate].address} onChange={event => updateCandidate(activeCandidate, "address", event.target.value)}/></label><label>Trial output<textarea value={candidates[activeCandidate].output} onChange={event => updateCandidate(activeCandidate, "output", event.target.value)} rows={6}/></label></div><button className="route-button" onClick={() => void route()} disabled={busy}>{busy ? <><LoaderCircle className="spin" size={17}/> Waiting for consensus…</> : <><ShieldCheck size={17}/> {preview ? "Run preview route" : "Request verified route"}<ArrowRight size={17}/></>}</button></section>
-          <aside className="card protocol-card" id="protocol"><div className="card-head"><div><span className="kicker">03 · SHARED OUTCOME</span><h3>What the chain decides.</h3></div><Network size={18}/></div>{result ? <div className="result"><div className="result-status"><span className="status-check"><Check size={16}/></span><div><strong>{result.status === "NO_MATCH" ? "No agent qualified" : result.status === "ACCEPTED" ? "Delivery accepted" : result.status === "REJECTED" ? "Delivery needs revision" : result.status === "DELIVERED" ? "Delivery ready for review" : result.status === "CLAIMED" ? "Task claimed" : "Agent routed"}</strong><small>{result.status === "NO_MATCH" ? result.decision.reason : result.status === "ROUTED" ? result.decision.reason : typeof result.evaluation === "object" && result.evaluation && "reason" in result.evaluation ? String((result.evaluation as { reason?: string }).reason || "") : "The task is moving through the verified delivery flow."}</small></div></div><div className="score-list">{result.decision.scores.map(score => <div className="score-row" key={score.id}><span>{score.id}</span><strong className={score.id === selectedId ? "winner" : ""}>{score.score}</strong><small>{score.missing_indices.length ? `${score.missing_indices.length} missing` : "all covered"}</small></div>)}</div>{result.status === "NO_MATCH" ? <div className="lifecycle-actions"><p className="action-help">Change the evidence above, then ask the creator-scoped task to rerun.</p><button className="small-action" onClick={() => void route()} disabled={busy}><RefreshCw size={14}/> Reroute current evidence</button></div> : <div className="lifecycle-actions"><div className="lifecycle"><span className={result.status !== "ROUTED" ? "done" : "current"}>1 Route</span><span className={["CLAIMED","DELIVERED","ACCEPTED","REJECTED"].includes(result.status) ? "done" : ""}>2 Claim</span><span className={["DELIVERED","ACCEPTED","REJECTED"].includes(result.status) ? "done" : ""}>3 Deliver</span><span className={["ACCEPTED","REJECTED"].includes(result.status) ? "done" : ""}>4 Review</span></div>{result.status === "ROUTED" && <><p className="action-help">The assigned address is {trimAddress(result.selected_address)}.</p><button className="small-action" onClick={claim} disabled={busy}><LockKeyhole size={14}/> Claim task</button></>}{["CLAIMED","REJECTED"].includes(result.status) && <><label className="delivery-label">Delivery<textarea value={delivery} onChange={event => setDelivery(event.target.value)} rows={4} placeholder="Paste the agent's completed work…"/></label><button className="small-action" onClick={submit} disabled={busy}><ArrowRight size={14}/> Submit delivery</button></>}{result.status === "DELIVERED" && <button className="small-action" onClick={verify} disabled={busy}><ShieldCheck size={14}/> Verify delivery</button>}{result.status === "ACCEPTED" && <div className="decision-note"><Check size={14}/> The accepted delivery is recorded as the task outcome.</div>}</div>}<div className="decision-note"><LockKeyhole size={14}/> {result.status === "NO_MATCH" ? "No address is authorized until a candidate qualifies." : "Route, claim, delivery and review are recorded against this task."}</div></div> : <div className="empty-result"><div className="empty-icon"><GitBranch size={22}/></div><strong>Waiting for a route</strong><p>Run the trial set to see the shared decision, scores and missing requirements.</p><div className="mini-steps"><span>01 <b>Freeze</b> requirements</span><span>02 <b>Compare</b> evidence</span><span>03 <b>Record</b> outcome</span></div></div>}</aside></div>
+        <div className="desk-grid"><section className="card task-card"><div className="card-head"><div><span className="kicker">01 · TASK SPECIFICATION</span><h3>What must be done?</h3></div><CircleHelp size={18}/></div><label>Task brief<textarea value={task} disabled={!!result && !preview} onChange={event => setTask(event.target.value)} rows={5}/></label><label>Requirements <span className="label-note">one per line</span><textarea value={requirements} disabled={!!result && !preview} onChange={event => setRequirements(event.target.value)} rows={5}/></label><div className="spec-footer"><span><LockKeyhole size={14}/> Requirements are fixed before judging</span><span>{requirementLines.length}/6</span></div></section>
+          <section className="card candidates-card" id="evidence">
+            <div className="card-head"><div><span className="kicker">02 · TRIAL EVIDENCE</span><h3>Compare the candidates.</h3></div><span className="candidate-count">{candidates.length} agents</span></div>
+            <p className="helper">{preview ? "Preview outputs are illustrative only." : "Create the task, then each authorized agent signs its own trial. GenLayer routes only from those on-chain attestations."}</p>
+            <div className="candidate-tabs">{candidates.map((candidate, index) => <button key={candidate.id} className={activeCandidate === index ? "active" : ""} onClick={() => setActiveCandidate(index)}><span className={`pill-dot ${candidate.accent}`}/>{candidate.name}{result?.trials?.[candidate.id] && <Check size={13}/>}</button>)}</div>
+            <div className="candidate-detail">
+              <div className="candidate-title"><div><strong>{candidates[activeCandidate]?.name}</strong><span>{candidates[activeCandidate]?.id}</span></div><span className="address">{trimAddress(candidates[activeCandidate]?.address || "")}</span></div>
+              <label>Agent wallet<input value={candidates[activeCandidate]?.address || ""} disabled={!!result && !preview} onChange={event => updateCandidate(activeCandidate, "address", event.target.value)}/></label>
+              {!result && candidates.length > 2 && <button className="small-action" onClick={() => { setCandidates(current => current.filter((_, index) => index !== activeCandidate)); setActiveCandidate(0); }}>Remove this agent</button>}
+              <label>Trial output<textarea value={candidates[activeCandidate]?.output || ""} onChange={event => updateCandidate(activeCandidate, "output", event.target.value)} rows={6}/></label>
+              {result?.trials?.[candidates[activeCandidate]?.id] && <details className="trial-proof"><summary><ShieldCheck size={14}/> On-chain agent attestation</summary><div><b>Wallet</b> {result.trials[candidates[activeCandidate].id].submitted_by}</div><div><b>Signed at</b> {new Date(result.trials[candidates[activeCandidate].id].submitted_at * 1000).toLocaleString()}</div><div><b>Revision</b> {result.trials[candidates[activeCandidate].id].revision}</div><div><b>Output hash</b> {result.trials[candidates[activeCandidate].id].output_hash}</div><small>This proves wallet attestation, not which external AI model generated the text.</small></details>}
+              {!preview && result?.storage_id && ["DRAFT", "NO_MATCH", "EXPIRED"].includes(result.status) && <button className="small-action" onClick={() => void submitTrial()} disabled={busy}><ShieldCheck size={14}/> {result.trials?.[candidates[activeCandidate]?.id] ? "Update signed trial" : "Sign this agent’s trial"}</button>}
+            </div>
+            {(!result || (!preview && result?.storage_id && ["DRAFT", "NO_MATCH", "EXPIRED"].includes(result.status))) && <div className="candidate-add"><p className="helper">{result ? "Need a replacement agent? The creator can authorize another wallet before rerouting." : "Add a candidate wallet before creating the task. Each one must later sign its trial."}</p><input aria-label="New candidate ID" placeholder="Agent ID" value={newCandidate.id} onChange={event => setNewCandidate(value => ({ ...value, id: event.target.value }))}/><input aria-label="New candidate name" placeholder="Agent name" value={newCandidate.name} onChange={event => setNewCandidate(value => ({ ...value, name: event.target.value }))}/><input aria-label="New candidate wallet" placeholder="0xAgentWallet" value={newCandidate.address} onChange={event => setNewCandidate(value => ({ ...value, address: event.target.value }))}/><button className="small-action" onClick={() => { if (result) void authorizeMore(); else if (candidates.length < 5 && newCandidate.id && newCandidate.name && validAddress(newCandidate.address)) { setCandidates(current => [...current, { ...newCandidate, output: "", accent: ACCENTS[current.length % ACCENTS.length] }]); setNewCandidate({ id: "", name: "", address: "" }); } else setError("Enter a unique candidate ID, name and valid wallet address (maximum five active candidates)."); }} disabled={busy}>{result ? "Authorize agent" : "Add agent"}</button></div>}
+            {(preview || !result || ["DRAFT", "NO_MATCH", "EXPIRED"].includes(result.status)) && <button className="route-button" onClick={() => void route()} disabled={busy}>{busy ? <><LoaderCircle className="spin" size={17}/> Waiting for finality…</> : <><ShieldCheck size={17}/> {preview ? "Run preview route" : !result ? "Create task and authorize agents" : result.status === "DRAFT" ? "Route signed trials" : "Reroute signed trials"}<ArrowRight size={17}/></>}</button>}
+          </section>
+          <aside className="card protocol-card" id="protocol">
+            <div className="card-head"><div><span className="kicker">03 · SHARED OUTCOME</span><h3>What the chain decides.</h3></div><Network size={18}/></div>
+            {result ? <div className="result">
+              <div className="result-status"><span className="status-check"><Check size={16}/></span><div><strong>{result.status === "DRAFT" ? "Awaiting signed trials" : result.status === "NO_MATCH" ? "No agent qualified" : result.status === "EXPIRED" ? "Stage expired — reroute available" : result.status === "ACCEPTED" ? "Delivery accepted" : result.status === "REJECTED" ? "Delivery needs revision" : result.status === "DELIVERED" ? "Delivery ready for review" : result.status === "CLAIMED" ? "Task claimed" : "Agent routed"}</strong><small>{["NO_MATCH", "ROUTED"].includes(result.status) ? result.decision.reason : result.status === "DRAFT" ? `${Object.keys(result.trials || {}).length} of ${Object.keys(result.authorized || {}).length} authorized agents have signed trials.` : result.status === "EXPIRED" ? `The ${result.expired_from?.toLowerCase() || "previous"} stage timed out. Its agent cannot be selected in the next route.` : typeof result.evaluation === "object" && result.evaluation && "reason" in result.evaluation ? String((result.evaluation as { reason?: string }).reason || "") : "The task is moving through the verified delivery flow."}</small></div></div>
+              {result.deadline ? <div className="decision-note"><RefreshCw size={14}/> Deadline: {new Date(result.deadline * 1000).toLocaleString()}</div> : null}
+              <div className="score-list">{result.decision.scores.map(score => <div className="score-row" key={score.id}><span>{score.id}</span><strong className={score.id === selectedId ? "winner" : ""}>{score.score}</strong><small>{score.missing_indices.length ? `${score.missing_indices.length} missing` : "all covered"}</small></div>)}</div>
+              <div className="lifecycle-actions"><div className="lifecycle"><span className={result.status !== "DRAFT" ? "done" : "current"}>1 Route</span><span className={["CLAIMED","DELIVERED","ACCEPTED","REJECTED"].includes(result.status) ? "done" : ""}>2 Claim</span><span className={["DELIVERED","ACCEPTED","REJECTED"].includes(result.status) ? "done" : ""}>3 Deliver</span><span className={["ACCEPTED","REJECTED"].includes(result.status) ? "done" : ""}>4 Review</span></div>
+                {result.status === "ROUTED" && <><p className="action-help">The assigned address is {trimAddress(result.selected_address)}.</p><button className="small-action" onClick={claim} disabled={busy}><LockKeyhole size={14}/> Claim task</button></>}
+                {["CLAIMED", "REJECTED"].includes(result.status) && <><label className="delivery-label">Delivery<textarea value={delivery} onChange={event => setDelivery(event.target.value)} rows={4} placeholder="Paste the agent's completed work…"/></label><button className="small-action" onClick={submit} disabled={busy}><ArrowRight size={14}/> Submit delivery</button></>}
+                {result.status === "DELIVERED" && <button className="small-action" onClick={verify} disabled={busy}><ShieldCheck size={14}/> Verify delivery</button>}
+                {["DRAFT", "ROUTED", "CLAIMED", "DELIVERED", "REJECTED"].includes(result.status) && <button className="small-action" onClick={expire} disabled={busy}><RefreshCw size={14}/> Expire stalled stage (after deadline)</button>}
+                {result.status === "ACCEPTED" && <div className="decision-note"><Check size={14}/> The accepted delivery is recorded as the task outcome.</div>}
+              </div>
+              <div className="decision-note"><LockKeyhole size={14}/> {result.status === "DRAFT" ? "The task specification and authorized wallets are fixed on-chain." : result.status === "NO_MATCH" ? "No agent is authorized until a candidate qualifies." : "Attested trials, route, deadlines and lifecycle actions are recorded on-chain."}</div>
+            </div> : <div className="empty-result"><div className="empty-icon"><GitBranch size={22}/></div><strong>Waiting for a task</strong><p>Create a fixed task, collect agent-signed trials, then request a shared route.</p><div className="mini-steps"><span>01 <b>Freeze</b> requirements</span><span>02 <b>Attest</b> trials</span><span>03 <b>Route</b> outcome</span></div></div>}
+          </aside></div>
         {result?.delivery_history && result.delivery_history.length > 0 && <details className="task-history"><summary>Previous rejected deliveries ({result.delivery_history.length})</summary>{result.delivery_history.map((attempt, index) => <div key={index}><strong>Attempt {index + 1}</strong><p>{attempt.delivery}</p><small>{attempt.evaluation && typeof attempt.evaluation === "object" && "reason" in attempt.evaluation ? String((attempt.evaluation as { reason?: string }).reason || "") : "Review unavailable"}</small></div>)}</details>}
       </section>
-      <section className="why"><div><span className="kicker">WHY TASKROUTE</span><h2>Make agent choice<br/><em>an auditable action.</em></h2></div><p>TaskRoute leaves agent execution off-chain, but moves the decision that affects authorization and reputation into a consensus-backed contract. Every route carries its input fingerprint, candidate evidence, structured scores and reason.</p><div className="why-points"><span><Check size={14}/> Independent validator agreement</span><span><Check size={14}/> Fail-closed NO_MATCH result</span><span><Check size={14}/> Delivery review ready</span></div></section>
+      <section className="why"><div><span className="kicker">WHY TASKROUTE</span><h2>Make agent choice<br/><em>an auditable action.</em></h2></div><p>TaskRoute leaves agent execution off-chain, but moves the decision that affects authorization into a consensus-backed contract. Every route carries candidate-wallet attestations, content hashes, structured scores and a reason. Deadlines let anyone release stalled work.</p><div className="why-points"><span><Check size={14}/> Candidate-signed trial provenance</span><span><Check size={14}/> Independent validator agreement</span><span><Check size={14}/> Permissionless timeout recovery</span></div></section>
     </main>
     <footer><span>TaskRoute · GenLayer-native agent routing</span><span>Chain 61997 · {configured ? CONTRACT : "Preview contract not configured"}</span></footer>
   </div>;

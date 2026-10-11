@@ -35,7 +35,7 @@ export async function read<T>(method: string, args: (string | number)[] = []): P
 export async function assertCompatibleContract(): Promise<void> {
   const policy = await read<{ decision_schema?: string; rules_version?: number }>("get_policy");
   if (!isCompatiblePolicy(policy))
-    throw Error("The configured TaskRoute contract is the older v1 build. Deploy v2 and update VITE_TASKROUTE_CONTRACT before sending transactions.");
+    throw Error("The configured TaskRoute contract is not the deterministic-coverage v4 build. Update VITE_TASKROUTE_CONTRACT before sending transactions.");
 }
 
 export async function quoteAndSubmit(provider: Provider, account: `0x${string}`, method: string,
@@ -94,7 +94,9 @@ export async function waitFinal(hash: `0x${string}`, onStatus: (status: string) 
     )) as Record<string, unknown>;
     const status = String(receipt.statusName ?? receipt.status ?? "UNKNOWN").toUpperCase();
     onStatus(status);
-    if (status === "FINALIZED") {
+    // GenLayer's ACCEPTED status is a successful decided transaction; FINALIZED
+    // is the later lifecycle state. Both are terminal for app actions.
+    if (status === "ACCEPTED" || status === "FINALIZED") {
       if (!executionSucceeded(receipt)) throw Error("Finalized with an execution error. State did not change.");
       return;
     }

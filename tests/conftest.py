@@ -23,4 +23,4 @@ def contract(direct_vm, direct_deploy, direct_alice, tmp_path):
     ).replace("class TaskRoute(gl.contract.Contract):", "class TaskRoute(gl.Contract):", 1)
     test_path = tmp_path / "task_route_direct.py"
     test_path.write_text(test_source, encoding="utf-8")
-    return direct_deploy(str(test_path), 2, sdk_version="v0.2.16")
+    return direct_deploy(str(test_path), 4, sdk_version="v0.2.16")

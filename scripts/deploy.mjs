@@ -30,7 +30,7 @@ if (!manifest?.contract_address) {
   const fees = await client.estimateTransactionFees();
   const balance = BigInt(await client.request({ method: "eth_getBalance", params: [account.address, "pending"] }));
   if (balance < fees.feeValue) throw new Error(`Insufficient test GEN: need ${fees.feeValue}, have ${balance}.`);
-  const hash = await client.deployContract({ code, args: [2], leaderOnly: false, fees });
+  const hash = await client.deployContract({ code, args: [4], leaderOnly: false, fees });
   console.log(JSON.stringify({ action: "deploy_submitted", hash, deployer: account.address }));
   let receipt;
   for (let attempt = 0; attempt < 120; attempt++) {
@@ -55,9 +55,10 @@ if (!manifest?.contract_address) {
 const deployed = await client.getContractCode(manifest.contract_address);
 const deployedBytes = deployed.startsWith("0x") ? Buffer.from(deployed.slice(2), "hex") : Buffer.from(deployed);
 const deployedHash = createHash("sha256").update(deployedBytes).digest("hex");
-if (deployedHash !== sourceHash) throw new Error(`On-chain source hash mismatch: ${deployedHash}`);
+if (deployedBytes.toString("utf8").replace(/\r\n/g, "\n") !== code.replace(/\r\n/g, "\n"))
+  throw new Error(`On-chain source mismatch beyond line endings: ${deployedHash}`);
 const policy = await client.readContract({ address: manifest.contract_address, functionName: "get_policy", args: [] });
-if (policy.decision_schema !== "taskroute/v2-banded-consensus" || Number(policy.rules_version) !== 2)
-  throw new Error("The deployed contract did not report the TaskRoute v2 decision policy.");
+if (policy.decision_schema !== "taskroute/v4-deterministic-coverage" || Number(policy.rules_version) !== 4 || policy.score_source !== "requirement_coverage")
+  throw new Error("The deployed contract did not report the TaskRoute v4 decision policy.");
 console.log(JSON.stringify({ verified: true, chain_id: 61997, contract_address: manifest.contract_address,
   deployment_tx: manifest.deployment_tx, source_sha256: sourceHash, policy }, null, 2));

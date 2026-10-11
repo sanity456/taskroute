@@ -1,8 +1,8 @@
 # TaskRoute
 
-TaskRoute is a GenLayer-native routing desk for AI-agent work. A requester freezes a task and its requirements and supplies trial outputs from multiple agents. Validators independently score each output; the contract compares their ten-point score bands and missing-requirement indices, then deterministically routes to the highest eligible band (at least 70, no missing requirements). Ties go to the lexicographically first candidate ID.
+TaskRoute is a GenLayer-native routing desk for AI-agent work. The v4 source addresses trial provenance, lifecycle liveness, and unstable route scoring. A creator freezes a task, its requirements and authorized candidate wallets. Each candidate wallet signs its own trial output on-chain; the creator cannot paste candidate text into the routing call. Validators independently identify unmet numbered requirements. The contract derives ten-point score bands from that coverage and selects the highest eligible candidate (at least 70, no missing requirements). Ties go to the lexicographically first candidate ID. The attestation proves which wallet submitted the text; it does not prove which external AI model generated it.
 
-The selected agent can claim the task, submit a delivery, and trigger a second consensus review. The contract records the task fingerprint, candidate evidence, structured decision, claim, delivery, and acceptance result. Rejected deliveries and their evaluations remain in `delivery_history` after resubmission. A `NO_MATCH` result is fail-closed: no agent is authorized to claim it.
+The selected agent can claim the task, submit a delivery, and trigger a second consensus review. The contract records each trial hash, submitting wallet and time, plus the decision, claim, delivery and acceptance result. Rejected deliveries remain in `delivery_history`. A `NO_MATCH` result is fail-closed. Trial collection, claim, delivery, review and revision have on-chain deadlines. Anyone can call `expire_task` after a deadline, and the creator can reroute to other attested candidates. Expiry is permissionless but requires a transaction; it is not automatic.
 
 ## Local verification
 
@@ -19,9 +19,22 @@ The full `genvm-lint check` requires the pinned production runner artifact to be
 
 The Vite app starts in preview mode until `VITE_TASKROUTE_CONTRACT` is set to a deployed contract address. Copy `.env.example` to `.env.local`, set the address, then run `npm run dev`.
 
-The app targets GenLayer Studio Next (chain 61997) and supports injected EVM wallets through EIP-6963, MetaMask, Phantom and OKX when available. Replace the example agent addresses with wallets those agents control before live routing. A task's creator-scoped storage ID is kept in a shareable URL and can be entered into the task loader after a refresh or wallet switch. The client refuses transactions against a pre-v2 contract.
+The app targets GenLayer Studio Next (chain 61997) and supports injected EVM wallets through EIP-6963, MetaMask, Phantom and OKX when available. Replace the example agent addresses with wallets those agents control before creating a live task. Every candidate must switch to its authorized wallet and sign a trial. A task's creator-scoped storage ID is kept in a shareable URL and can be entered into the task loader after a refresh or wallet switch. The v4 client refuses transactions against older contracts.
 
-## Current Studio Next v2 deployment
+## Studio Next v4 — deployment and live route pending
+
+The v4 contract uses validator-agreed missing-requirement sets to derive scores and the selected agent. Local direct-mode contract tests and the frontend build pass. The current v3 task cannot be moved to a new contract: v4 deployment requires a new task and fresh candidate-wallet signatures. No v4 live route or completed lifecycle has been recorded yet. Keep the public reviewer link on the historical v2 deployment until v4 is deployed, tested end to end, and the frontend is updated.
+
+## Historical Studio Next v3 deployment — route not finalized
+
+- Contract: `0xCB1639E972ec70C6517c103ad37635714642429c`
+- Chain: Studio Dev / Next (`61997`)
+- Deployment transaction: `0x2281ae9ce3fb2690c1d49ffe6aa03ea2325dedb4144b378d0bebe6a7995b09da` (finalized)
+- Explorer: https://explorer-studio-dev.genlayer.com/address/0xCB1639E972ec70C6517c103ad37635714642429c
+- The original v3 source was verified against on-chain SHA-256 `2c4cbf835cec05b9f20377ccb55d495d65c7155068b4aed2fe2588d66110dba4`; its `get_policy` reported `taskroute/v3-provenance-liveness`, rules version 3, wallet attestation and permissionless expiry. The current v4 source has a different hash, so the v4 verification helper must not be used against this address.
+- Two live route attempts ended `UNDETERMINED` and the task remained `DRAFT` despite 2 of 2 signed trials. The public Vercel app and submitted reviewer link still use v2. This v3 address is not a completed route proof.
+
+## Historical Studio Next v2 deployment — public app until v4 cutover
 
 - Contract: `0x323aa0C703443d9598D7BD2E8Fe14F5c04E4881B`
 - Chain: Studio Dev / Next (`61997`)
@@ -41,7 +54,7 @@ The app targets GenLayer Studio Next (chain 61997) and supports injected EVM wal
 
 The production Vercel app connected MetaMask on Studio Next (chain 61997), simulated `route_task`, displayed a protocol deposit of `0.000382702800010352` test GEN, and submitted the transaction after wallet approval. Transaction [`0x3e1a1a964fa2bce218a4e50ecbebcbdb076ceff79d7c0eda23929fe0e89101d2`](https://explorer-studio-dev.genlayer.com/transactions/0x3e1a1a964fa2bce218a4e50ecbebcbdb076ceff79d7c0eda23929fe0e89101d2) finalized. The [new task](https://taskroute-three.vercel.app/?task=0xd2ef9b9d07a69152d075462274f3329be7538d8e%3Atask-mv1iz3in) loads after a refresh without a connected wallet and shows `route_a` selected at score 100 with no missing requirements. This proves the production browser signing path for routing; the separate smoke test above covers the full route, claim, delivery, and review lifecycle.
 
-## Reviewer path
+## Historical v2 reviewer path (does not prove the v4 fixes)
 
 1. Open the [completed Studio Next task](https://taskroute-three.vercel.app/?task=0xd2ef9b9d07a69152d075462274f3329be7538d8e%3Asmoke-20261009-v2-a). No wallet is needed for this read-only check.
 2. Wait for the workspace badge to say **Live contract** and the task panel to show **Delivery accepted**. The loaded task is `smoke-20261009-v2-a`; route `route_a` scored 100 with no missing requirements, while `route_b` scored 0 with two missing requirements.
@@ -68,13 +81,17 @@ This earlier deployment completed a real Studio Next smoke workflow, but it does
 - Final status: `ACCEPTED`
 - Transactions: route `0xa4aecd03a7b077ec5f7fd5cd0d2f142f156a7fe9b45213de2c4f2b4b95601c04`, claim `0x0284e141eb42b109cd175fc10d994bd7474b68833fc3a4420fc9ba8fe7699899`, delivery `0x24365ec25735c9e2df1ad9a8b14b825abb00784df5635f3beb1252f0b9c73380`, review `0xdde6b642ca1b81bf64e61f8b77c4974903816cdb2d26869d3f31f6dfc8f21618`
 
-## Contract methods
+## v4 contract methods
 
-- `route_task(task_id, task, requirements_json, candidates_json)` — consensus-select a candidate or return `NO_MATCH`. The returned storage ID is scoped to the creator wallet.
+- `create_task(task_id, task, requirements_json, candidates_json)` — creator freezes the task and authorized candidate wallets; returns a creator-scoped storage ID.
+- `authorize_candidate(storage_id, candidate_id, name, address)` — creator adds a replacement candidate while the task is draft, unmatched, or expired.
+- `submit_trial(storage_id, candidate_id, output)` — authorized candidate wallet attests its own trial; the contract records submitter, timestamp, revision and SHA-256 digest.
+- `route_task(storage_id, candidate_ids_json)` — consensus-selects from attested on-chain trials or returns `NO_MATCH`.
 - `claim_task(storage_id)` — only the selected candidate address can claim.
 - `submit_delivery(storage_id, delivery)` — selected candidate submits work, including a resubmission after a rejection.
-- `reroute_task(storage_id, candidates_json)` — the creator can appeal a `NO_MATCH` result with a revised candidate set; previous decisions remain in history.
+- `reroute_task(storage_id, candidate_ids_json)` — creator retries after `NO_MATCH` or expiry, using attested candidates; previous decisions and deliveries remain in history.
+- `expire_task(storage_id)` — anyone may mark a stalled stage expired after its recorded deadline.
 - `verify_delivery(storage_id)` — validators independently accept or reject the delivery.
 - `get_task`, `get_policy`, `get_task_count`, `get_task_id` — read-only views.
 
-The contract uses a pinned GenVM runner and custom validator functions. The route reason is generated deterministically from validator-agreed score bands and missing-requirement fields. Delivery review reasons remain free-form; validators compare the acceptance status and missing-requirement indices.
+The contract uses a pinned GenVM runner and custom validator functions. The route score and reason are generated from validator-agreed missing-requirement fields. Delivery review reasons remain free-form; validators compare the acceptance status and missing-requirement indices. The v4 source and UI are not evidence of a live deployment until the Studio Next deployment, smoke test, frontend cutover and submission links are updated.

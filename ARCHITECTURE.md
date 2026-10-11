@@ -1,10 +1,10 @@
-# TaskRoute boundary
+# TaskRoute v4 trust and liveness boundary
 
-1. The frontend collects a task, fixed requirements and public trial outputs. The storage key combines the creator address and the caller-provided task ID, so another wallet cannot front-run or overwrite the same ID.
-2. `route_task` validates the shape, binds the inputs to a fingerprint, and runs a nondeterministic evaluator.
-3. A validator independently reruns the evaluator. Consensus compares route status, selected agent ID, every score and every missing requirement index.
-4. The deterministic path stores the route and the selected address. `claim_task` is a state transition that only that address can execute.
-5. After delivery, `verify_delivery` reruns a second structured evaluation. Consensus compares accepted/rejected status and missing requirement indexes.
-6. A creator can appeal a `NO_MATCH` result through `reroute_task`; the old decision and candidate set are kept in the task history.
+1. The creator signs `create_task`, fixing the task, requirements, candidate IDs and candidate wallet addresses. The storage key is creator-scoped. Candidate addresses are not editable during an active route.
+2. Each authorized candidate wallet signs `submit_trial`. The contract records the exact output, SHA-256 digest, submitting address, timestamp and revision. A creator cannot submit a trial as another candidate. This proves wallet attestation, not that a particular external AI model generated the text.
+3. `route_task` reads trials from contract storage. It does not accept requester-supplied trial text. Each validator independently identifies which numbered requirements each trial misses. The contract derives score bands and the winner from that coverage result. Consensus compares the complete missing-requirement sets and derived bands.
+4. The selected wallet may claim and deliver. A second validator review compares accepted/rejected status and missing-requirement indices. Rejected attempts remain in history.
+5. Every live stage has a transaction-clock deadline: trial collection (7 days), claim (24 hours), delivery (72 hours), review (24 hours), and revision (72 hours). Actions after the deadline fail closed even if nobody has called `expire_task` yet. Anyone may call `expire_task` after the deadline. Expiry is not automatic; a transaction is required.
+6. After a `NO_MATCH` or expiry, the creator may reroute using signed trials. A timed-out selected wallet is excluded from that next candidate set. Reroute archives the prior decision and delivery state. New candidate wallets can be authorized after a failed or expired route.
 
-The frontend is intentionally non-authoritative: preview decisions are labelled as previews, and live decisions are read back from the contract after finalization.
+The frontend only displays records and prepares signed calls; it cannot authoritatively change contract state. Preview decisions are explicitly non-consensus demos. The v2 production deployment remains separate until v4 is deployed and verified with new live evidence. The earlier v3 task did not reach a route decision.

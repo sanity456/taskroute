@@ -15,8 +15,8 @@ const agentClient = createClient({ chain: studioDevnet, account: agent });
 const manifest = JSON.parse(await readFile(new URL("../.sites-runtime/studio-next.json", import.meta.url), "utf8"));
 const address = manifest.contract_address;
 const policy = await ownerClient.readContract({ address, functionName: "get_policy", args: [] });
-if (policy.decision_schema !== "taskroute/v2-banded-consensus" || Number(policy.rules_version) !== 2)
-  throw new Error("Live smoke requires a deployed TaskRoute v2 contract.");
+if (policy.decision_schema !== "taskroute/v4-deterministic-coverage" || Number(policy.rules_version) !== 4 || policy.score_source !== "requirement_coverage")
+  throw new Error("Live smoke requires a deployed TaskRoute v4 contract.");
 const json = value => JSON.stringify(value, (_, v) => typeof v === "bigint" ? v.toString() : v, 2);
 
 async function feeQuote(client, functionName, args) {
@@ -69,24 +69,25 @@ try {
   record = await ownerClient.readContract({ address, functionName: "get_task", args: [storageId], transactionHashVariant: TransactionHashVariant.LATEST_FINAL });
   console.log(JSON.stringify({ action: "resume_existing_task", storageId, status: record.status }));
 } catch {
-  await write(ownerClient, "route_task", [taskId, task, JSON.stringify(requirements), JSON.stringify(candidates)]);
+  await write(ownerClient, "create_task", [taskId, task, JSON.stringify(requirements), JSON.stringify(candidates.map(({ id, name, address }) => ({ id, name, address })))]);
   record = await ownerClient.readContract({ address, functionName: "get_task", args: [storageId], transactionHashVariant: TransactionHashVariant.LATEST_FINAL });
 }
-if (record.decision.status === "NO_MATCH") {
-  const revisedCandidates = [
-    { id: "route_a", name: "Route A", address: owner.address, output: "TASKROUTE_SMOKE_OK. CSV output is ready." },
-    { id: "route_b", name: "Route B", address: agent.address, output: "I return a plain-text summary only; no CSV and no date-range coverage." },
-  ];
-  await write(ownerClient, "reroute_task", [storageId, JSON.stringify(revisedCandidates)]);
+if (record.status === "DRAFT") {
+  if (!record.trials?.route_a) await write(ownerClient, "submit_trial", [storageId, "route_a", candidates[0].output]);
+  if (!record.trials?.route_b) await write(agentClient, "submit_trial", [storageId, "route_b", candidates[1].output]);
+  await write(ownerClient, "route_task", [storageId, JSON.stringify(["route_a", "route_b"])]);
   record = await ownerClient.readContract({ address, functionName: "get_task", args: [storageId], transactionHashVariant: TransactionHashVariant.LATEST_FINAL });
 }
+if (record.status === "NO_MATCH") throw new Error("No candidate qualified; inspect the attested trials before rerouting.");
 if (record.decision.status !== "ROUTED" || !record.decision.selected_id) throw new Error(`Unexpected route decision: ${record.decision.status}`);
 const selected = record.decision.selected_id === "route_a" ? ownerClient : agentClient;
 const selectedAddress = record.selected_address;
-await write(selected, "claim_task", [storageId]);
+if (record.status === "ROUTED") await write(selected, "claim_task", [storageId]);
 const delivery = "TASKROUTE_SMOKE_OK. CSV output is ready.";
-await write(selected, "submit_delivery", [storageId, delivery]);
-await write(ownerClient, "verify_delivery", [storageId]);
+record = await ownerClient.readContract({ address, functionName: "get_task", args: [storageId], transactionHashVariant: TransactionHashVariant.LATEST_FINAL });
+if (record.status === "CLAIMED") await write(selected, "submit_delivery", [storageId, delivery]);
+record = await ownerClient.readContract({ address, functionName: "get_task", args: [storageId], transactionHashVariant: TransactionHashVariant.LATEST_FINAL });
+if (record.status === "DELIVERED") await write(ownerClient, "verify_delivery", [storageId]);
 record = await ownerClient.readContract({ address, functionName: "get_task", args: [storageId], transactionHashVariant: TransactionHashVariant.LATEST_FINAL });
 if (record.status !== "ACCEPTED") throw new Error(`Delivery was not accepted: ${record.status}`);
 console.log(json({ verified: true, chain_id: 61997, contract_address: address, task_id: taskId, storage_id: storageId,
