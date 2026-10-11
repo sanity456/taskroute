@@ -21,9 +21,31 @@ The Vite app starts in preview mode until `VITE_TASKROUTE_CONTRACT` is set to a 
 
 The app targets GenLayer Studio Next (chain 61997) and supports injected EVM wallets through EIP-6963, MetaMask, Phantom and OKX when available. Replace the example agent addresses with wallets those agents control before creating a live task. Every candidate must switch to its authorized wallet and sign a trial. A task's creator-scoped storage ID is kept in a shareable URL and can be entered into the task loader after a refresh or wallet switch. The v4 client refuses transactions against older contracts.
 
-## Studio Next v4 — deployment and live route pending
+## Current Studio Next v4 deployment and live lifecycle
 
-The v4 contract uses validator-agreed missing-requirement sets to derive scores and the selected agent. Local direct-mode contract tests and the frontend build pass. The current v3 task cannot be moved to a new contract: v4 deployment requires a new task and fresh candidate-wallet signatures. No v4 live route or completed lifecycle has been recorded yet. Keep the public reviewer link on the historical v2 deployment until v4 is deployed, tested end to end, and the frontend is updated.
+- Contract: `0x21832eC2253F56a856a450115437D5Bb3D0241ad`
+- Chain: Studio Dev / Next (`61997`)
+- Explorer: https://explorer-studio-dev.genlayer.com/address/0x21832eC2253F56a856a450115437D5Bb3D0241ad
+- Policy: `taskroute/v4-deterministic-coverage`, version 4
+- Production app: https://taskroute-three.vercel.app/ (Vercel project `sanity3/taskroute`). The deployed client points to this v4 contract.
+- Public read-only reviewer task: https://taskroute-three.vercel.app/?task=0x7cef5dbbd598ba74ef9c665c9853e573448d97d0%3Atask-mv485k7y#route
+- Task key: `0x7cef5dbbd598ba74ef9c665c9853e573448d97d0:task-mv485k7y`
+
+The live task completed a full route, claim, delivery, and independent review on Studio Next. FactTable's authorized wallet submitted revision 2; validators selected it at 100/100 with no missing requirements. FastSummary scored 0 with all three requirements missing. FactTable claimed the task, delivered the required A/B/C table, and the independent review returned `ACCEPTED`. Read-only `get_task` confirmed the accepted state. The public task page shows the result without requiring a wallet.
+
+Confirmed lifecycle transactions:
+
+- Claim: `0x26349ce886f6bf20c13e0bd83af2c4f2f65f7b4b67de169e6ca80b8b1e68446c`
+- Delivery: `0xe1397999d020432d23df153f5427d7413ff190ca7634ae984cfef6e27cd8f951`
+- Accepted review: `0x3a37b63854d8227f03cb45462db4c0fc7a416962a4569000aa6b2461036a76a3`
+
+The route was re-run after updating the candidate attestations, producing revision 2. Each trial is bound to its authorized candidate wallet and records its content hash, submitter, timestamp, and revision. Lifecycle deadlines and permissionless expiry/recovery are implemented. Local direct contract tests (12) and app tests (5) pass, and the production build succeeds. GenVM lint's AST checks pass; semantic validation could not run in this environment because the pinned runner archive is missing. The live deployment and lifecycle above are the end-to-end evidence for the deployed contract.
+
+### Current reviewer path
+
+1. Open the [completed live task](https://taskroute-three.vercel.app/?task=0x7cef5dbbd598ba74ef9c665c9853e573448d97d0%3Atask-mv485k7y#route); no wallet is required.
+2. Confirm the page says **Live contract** and **Delivery accepted**. FactTable should show 100 with no missing requirements; FastSummary should show 0 with all three requirements missing.
+3. Confirm the accepted A/B/C table and `Unknown` markers for unavailable values. Compare the footer contract address with the [Studio Dev contract record](https://explorer-studio-dev.genlayer.com/address/0x21832eC2253F56a856a450115437D5Bb3D0241ad) and the accepted-review transaction above.
 
 ## Historical Studio Next v3 deployment — route not finalized
 
@@ -32,9 +54,9 @@ The v4 contract uses validator-agreed missing-requirement sets to derive scores 
 - Deployment transaction: `0x2281ae9ce3fb2690c1d49ffe6aa03ea2325dedb4144b378d0bebe6a7995b09da` (finalized)
 - Explorer: https://explorer-studio-dev.genlayer.com/address/0xCB1639E972ec70C6517c103ad37635714642429c
 - The original v3 source was verified against on-chain SHA-256 `2c4cbf835cec05b9f20377ccb55d495d65c7155068b4aed2fe2588d66110dba4`; its `get_policy` reported `taskroute/v3-provenance-liveness`, rules version 3, wallet attestation and permissionless expiry. The current v4 source has a different hash, so the v4 verification helper must not be used against this address.
-- Two live route attempts ended `UNDETERMINED` and the task remained `DRAFT` despite 2 of 2 signed trials. The public Vercel app and submitted reviewer link still use v2. This v3 address is not a completed route proof.
+- Two live route attempts ended `UNDETERMINED` and the task remained `DRAFT` despite 2 of 2 signed trials. This v3 address is not a completed route proof; the current app and reviewer path use v4 above.
 
-## Historical Studio Next v2 deployment — public app until v4 cutover
+## Historical Studio Next v2 deployment — superseded by v4
 
 - Contract: `0x323aa0C703443d9598D7BD2E8Fe14F5c04E4881B`
 - Chain: Studio Dev / Next (`61997`)
@@ -42,15 +64,14 @@ The v4 contract uses validator-agreed missing-requirement sets to derive scores 
 - Studio transaction: `0x00006d33ec391df89ee30c192259902990e92b020106b301c38ff2cc612ecf37`
 - Explorer: https://explorer-studio-dev.genlayer.com/address/0x323aa0C703443d9598D7BD2E8Fe14F5c04E4881B
 - Read-only `get_policy` returned `rules_version: 2` and `decision_schema: taskroute/v2-banded-consensus` with `Accepted` status.
-- `.env.local` and the Vercel production and preview environments point to this deployment.
-- Production site: https://taskroute-three.vercel.app/ (Vercel project `sanity3/taskroute`; deployment `dpl_DSAgtjp6cMytS8XrdB6TUr9LzxTb`). The deployment is `READY` and uses the v2 contract address.
+- This was the previous Vercel production contract; the current production app now points to v4 above.
 - The v2 live lifecycle smoke test completed successfully. Test task: `smoke-20261009-v2-a`; storage ID: `0xd2ef9b9d07a69152d075462274f3329be7538d8e:smoke-20261009-v2-a`.
 - Live result: `route_a` selected (score 100; no missing requirements), claimed by the selected wallet, delivery submitted, then accepted by `verify_delivery`. A fresh read-only `get_task` returned `ACCEPTED` with `missing_indices: []` and the validator's acceptance reason.
 - Confirmed transaction hashes: route `0x907fbcf1697c6f99ffa8df28d8f22dbbd8a8ec2cf444521a8d41cd66a8fc5b32`, claim `0xd95cb8b15140f259bba35edcc980c36d27bca3278ed55070c990b3df1e1cf7a1`, delivery `0xa6720ded1d98f4d2cd25d89b4a73da015077484f6621b41efda14c51346eb1c7`.
 - Studio's transaction card continued to display the verification call as pending, but the subsequent contract readback confirmed the final accepted state. The verification transaction hash was not captured, so it is intentionally omitted here.
-- Production deployment verified at https://taskroute-three.vercel.app/; its served bundle references the v2 contract address.
+- At the time of the v2 smoke test, the production bundle referenced this v2 contract. The current deployment has since been updated to v4 above.
 
-### Production browser wallet smoke test
+### Historical production browser wallet smoke test (v2)
 
 The production Vercel app connected MetaMask on Studio Next (chain 61997), simulated `route_task`, displayed a protocol deposit of `0.000382702800010352` test GEN, and submitted the transaction after wallet approval. Transaction [`0x3e1a1a964fa2bce218a4e50ecbebcbdb076ceff79d7c0eda23929fe0e89101d2`](https://explorer-studio-dev.genlayer.com/transactions/0x3e1a1a964fa2bce218a4e50ecbebcbdb076ceff79d7c0eda23929fe0e89101d2) finalized. The [new task](https://taskroute-three.vercel.app/?task=0xd2ef9b9d07a69152d075462274f3329be7538d8e%3Atask-mv1iz3in) loads after a refresh without a connected wallet and shows `route_a` selected at score 100 with no missing requirements. This proves the production browser signing path for routing; the separate smoke test above covers the full route, claim, delivery, and review lifecycle.
 
