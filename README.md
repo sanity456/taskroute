@@ -39,7 +39,7 @@ Confirmed lifecycle transactions:
 - Delivery: `0xe1397999d020432d23df153f5427d7413ff190ca7634ae984cfef6e27cd8f951`
 - Accepted review: `0x3a37b63854d8227f03cb45462db4c0fc7a416962a4569000aa6b2461036a76a3`
 
-The route was re-run after updating the candidate attestations, producing revision 2. Each trial is bound to its authorized candidate wallet and records its content hash, submitter, timestamp, and revision. Lifecycle deadlines and permissionless expiry/recovery are implemented. Local direct contract tests (12) and app tests (5) pass, and the production build succeeds. GenVM lint's AST checks pass; semantic validation could not run in this environment because the pinned runner archive is missing. The live deployment and lifecycle above are the end-to-end evidence for the deployed contract.
+The route was re-run after updating the candidate attestations, producing revision 2. Each trial is bound to its authorized candidate wallet and records its content hash, submitter, timestamp, and revision. Local direct contract tests (12) cover unauthorized trial submission, attestation/hash persistence, missing-trial rejection, deadline expiry at draft/route/claim/delivery/revision stages, and creator rerouting after expiry; app tests (5) pass, and the production build succeeds. GenVM lint's AST checks pass; semantic validation could not run in this environment because the pinned runner archive is missing. The live deployment and lifecycle above are the end-to-end evidence for the deployed contract.
 
 ### Current reviewer path
 
